@@ -137,6 +137,8 @@
             else if (navigator.appVersion.indexOf("Mac") !== -1) os = "MacOS";
             else if (navigator.appVersion.indexOf("X11") !== -1) os = "UNIX";
             else if (navigator.appVersion.indexOf("Linux") !== -1) os = "Linux";
+            else if (navigator.appVersion.indexOf("Android") !== -1) os = "Android";
+            else if (navigator.appVersion.indexOf("iPhone") !== -1 || navigator.appVersion.indexOf("iPad") !== -1) os = "iOS";
             return os;
         }
 
